@@ -1,0 +1,14 @@
+import pickle
+
+fname = "Phase5locknkey.pkl"  # change to your actual phase file
+with open(fname, "rb") as f:
+    q = pickle.load(f)
+
+print("Number of entries in Q-table:", len(q))
+sample_key = list(q.keys())[0]
+print("Sample key:", sample_key)
+print("Type of key:", type(sample_key))
+
+if isinstance(sample_key, (tuple, list)):
+    print("Length of each key:", len(sample_key))
+    print("Sample key types:", [type(x) for x in sample_key])
