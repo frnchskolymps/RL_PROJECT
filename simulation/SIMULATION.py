@@ -74,7 +74,7 @@ class LockKeyEnv(gym.Env):
 
     def __init__(self, render_mode="human", size=6, phase=1, seed=None):
         super().__init__()
-        assert phase in (1,2,3,4,5), "Phase must be 1–5"
+        assert phase in (1,2,3), "Phase must be 1–3"
         self.size = size
         self.phase = phase
         self._rng = np.random.default_rng(seed)
@@ -90,15 +90,15 @@ class LockKeyEnv(gym.Env):
         self.observation_space = spaces.Discrete(self.size**6)
 
         # Defaults and walls
-        self._default_agent_pos = np.array([5, 0])
-        self._default_key_pos = np.array([5, 3])
-        self._default_lock_pos = np.array([0, 5])
-        self.walls = {(0,2),(1,1),(1,4),(2,3),(3,0),(3,2),(4,4)}
+        self._default_agent_pos = np.array([0, 0])
+        self._default_key_pos = np.array([2, 5])
+        self._default_lock_pos = np.array([5, 5])
+        self.walls = {(0,3),(1,3),(2,3),(3,1),(4,2),(4,3)}
         self._fixed_phase1_walls = self.walls.copy()
 
         # Enemy & trail
         self.enemy_pos = None
-        self.enemy_active = (phase == 5)
+        self.enemy_active = (phase == 3)
         self.trail = deque(maxlen=4)
 
         # State
@@ -190,20 +190,21 @@ class LockKeyEnv(gym.Env):
             self.key_pos = self._default_key_pos.copy()
             self.lock_pos = self._default_lock_pos.copy()
             self.walls = self._fixed_phase1_walls.copy()
+
         elif self.phase == 2:
             self.lock_pos = self._default_lock_pos.copy()
             self.agent_pos = self._random_free_cell(exclude={tuple(self.lock_pos)})
             self.key_pos = self._random_free_cell(exclude={tuple(self.lock_pos), tuple(self.agent_pos)})
+            self.walls = self._fixed_phase1_walls.copy()  # could also randomize mildly here
         else:
-            self.lock_pos = self._random_free_cell()
-            self.agent_pos = self._random_free_cell(exclude={tuple(self.lock_pos)})
-            self.key_pos = self._random_free_cell(exclude={tuple(self.lock_pos), tuple(self.agent_pos)})
-
-        if self.phase == 5:
-            exclude = {tuple(self.lock_pos), tuple(self.agent_pos), tuple(self.key_pos)}.union(self.walls)
-            self.enemy_pos = self._random_free_cell(exclude=exclude)
+            # phase 3
+            self.agent_pos = self._random_free_cell()
+            self.key_pos = self._random_free_cell(exclude={tuple(self.agent_pos)})
+            self.lock_pos = self._random_free_cell(exclude={tuple(self.agent_pos), tuple(self.key_pos)})
             self.enemy_active = True
-            self.trail.clear()
+            self.enemy_pos = self._random_free_cell(exclude={tuple(self.agent_pos), tuple(self.key_pos), tuple(self.lock_pos)})
+            self.walls = self._random_walls()
+
 
         self.has_key = False
         self.steps = 0
@@ -253,7 +254,7 @@ class LockKeyEnv(gym.Env):
             reward += self.DOOR_REWARD
             terminated = True
 
-        if self.phase == 5 and self.enemy_active:
+        if self.phase == 3 and self.enemy_active:
             if len(self.trail) >= 3:
                 self.enemy_pos = self.trail[2].copy()
             else:
@@ -274,7 +275,7 @@ class LockKeyEnv(gym.Env):
         info = {}
         if self.steps >= self.max_steps: truncated = True; info['timeout'] = True
         if terminated:
-            if self.phase == 5 and self.enemy_active and np.array_equal(self.enemy_pos, self.agent_pos):
+            if self.phase == 3 and self.enemy_active and np.array_equal(self.enemy_pos, self.agent_pos):
                 info['caught'] = True
             elif self.has_key and np.array_equal(self.agent_pos, self.lock_pos):
                 info['unlocked'] = True
@@ -289,6 +290,21 @@ class LockKeyEnv(gym.Env):
         while True:
             r, c = self._rng.integers(0, self.size, size=2)
             if (r,c) not in self.walls and (r,c) not in exclude: return np.array([r,c])
+            
+    def _random_walls(self, n_walls=8):
+        walls = set()
+        attempts = 0
+        max_attempts = 200
+        exclude = {tuple(self.agent_pos), tuple(self.key_pos), tuple(self.lock_pos)}
+        if hasattr(self, "enemy_pos"):
+            exclude.add(tuple(self.enemy_pos))
+        while len(walls) < n_walls and attempts < max_attempts:
+            r, c = np.random.randint(0, self.size, size=2)
+            if (r, c) not in exclude and (r, c) not in walls:
+                walls.add((r, c))
+            attempts += 1
+        return list(walls)
+
 
     def _manhattan(self, p1, p2):
         if p1 is None or p2 is None: return 0
@@ -582,7 +598,7 @@ def main_menu():
         clock.tick(30)
 
     # Phase selection + episodes
-    phase_buttons=[pygame.Rect(120,160+i*80,160,60) for i in range(5)]
+    phase_buttons=[pygame.Rect(120,160+i*80,160,60) for i in range(3)]
     exit_btn=pygame.Rect(700,500,160,60)
     input_box=pygame.Rect(350,500,200,40)
     active_box=False
