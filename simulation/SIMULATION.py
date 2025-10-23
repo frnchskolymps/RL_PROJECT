@@ -10,12 +10,7 @@ from collections import deque
 import gymnasium as gym
 from gymnasium import spaces
 
-# ---------------- Helper Functions ----------------
 def load_q_table_for_phase(phase):
-    """
-    Safely loads the Q-table or policy dictionary for the given phase.
-    Works for both old-style (direct Q dict) and new-style wrapped dicts.
-    """
     candidates = [f"Phase{phase}locknkey.pkl", f"phase{phase}locknkey.pkl"]
     fname = next((c for c in candidates if os.path.exists(c)), None)
     if not fname:
@@ -68,7 +63,6 @@ def draw_input_box(screen, rect, text, font, active):
     txt_surface = font.render(str(text), True, (0,0,0))
     screen.blit(txt_surface, (rect.x+5, rect.y+5))
 
-# ---------------- LockKeyEnv ----------------
 class LockKeyEnv(gym.Env):
     metadata = {"render_modes": ["human"], "render_fps": 5}
 
@@ -145,7 +139,6 @@ class LockKeyEnv(gym.Env):
         self.DIST_SCALE = 0.05
         self.APPROACH_SCALE = 0.1
 
-    # ---------- Environment Methods ----------
     def _load_images(self):
         pygame_safe_init()
         if not pygame.display.get_init() or pygame.display.get_surface() is None:
@@ -284,7 +277,6 @@ class LockKeyEnv(gym.Env):
         if self.render_mode == "human": self._render_frame()
         return self._get_obs(), reward, terminated, truncated, info
 
-    # ---------- Internal Helpers ----------
     def _random_free_cell(self, exclude=None):
         if exclude is None: exclude = set()
         while True:
@@ -323,7 +315,6 @@ class LockKeyEnv(gym.Env):
     def _get_obs(self):
         return np.array([*self.agent_pos, *self.key_pos, *self.lock_pos, int(self.has_key)])
 
-    # ---------- Rendering ----------
     def _render_frame(self):
         pygame_safe_init()
         if self.player_img is None: self._load_images()
@@ -367,7 +358,7 @@ class LockKeyEnv(gym.Env):
             pygame.draw.circle(canvas,(50,100,255), rect.center, max(6,self.cell_size//3))
 
         # enemy
-        if self.phase==5 and self.enemy_active and self.enemy_pos is not None:
+        if self.phase==3 and self.enemy_active and self.enemy_pos is not None:
             rect = pygame.Rect(self.enemy_pos[1]*self.cell_size, self.enemy_pos[0]*self.cell_size, self.cell_size, self.cell_size)
             if self.enemy_img:
                 canvas.blit(pygame.transform.scale(self.enemy_img,(self.cell_size,self.cell_size)), rect.topleft)
@@ -425,7 +416,6 @@ class LockKeyEnv(gym.Env):
             pygame.display.quit()
             pygame.quit()
 
-# ---------------- Q-table Lookup ----------------
 def get_q_for_state(q_table, obs, n_actions):
     obs_key = tuple(int(x) for x in obs)
     if obs_key in q_table: return np.array(q_table[obs_key], dtype=float)
@@ -439,7 +429,6 @@ def get_q_for_state(q_table, obs, n_actions):
     if str_key in q_table: return np.array(q_table[str_key],dtype=float)
     return np.zeros(n_actions,dtype=float)
 
-# ---------------- Actor-Critic ----------------
 class ActorNetwork(nn.Module):
     def __init__(self, state_dim, action_dim):
         super().__init__()
@@ -462,7 +451,6 @@ def load_actor_for_phase(phase,state_dim,action_dim):
     print(f"[LOADED] Actor model for Phase {phase}: {fname}")
     return actor
 
-# ---------------- Training File Resolver ----------------
 def get_training_file(phase, algo_name):
     base1 = f"Phase{phase}_{algo_name.replace(' ','-')}"
     base2 = f"Phase{phase}_{algo_name.replace(' ','')}"
@@ -473,7 +461,6 @@ def get_training_file(phase, algo_name):
             return fname
     raise FileNotFoundError(f"[ERROR] No saved file found for Phase {phase} and algorithm '{algo_name}'. Tried: {candidates}")
 
-# ---------------- Tabular Playback ----------------
 def run_tabular_playback(phase, episodes, algo_name="Q-Learning", grid_size=6):
     try: fname = get_training_file(phase, algo_name)
     except FileNotFoundError as e: print(e); return
@@ -507,7 +494,7 @@ def run_tabular_playback(phase, episodes, algo_name="Q-Learning", grid_size=6):
             episode_reward += reward
             steps += 1
             env._render_frame()
-            clock.tick(int(env.framerate*env.speed_multiplier))
+            # clock.tick(int(env.framerate*env.speed_multiplier))
             if terminated or truncated: done=True
 
         if info.get('unlocked'): successes+=1; status="Door Unlocked"
@@ -522,7 +509,6 @@ def run_tabular_playback(phase, episodes, algo_name="Q-Learning", grid_size=6):
     env.close()
     print(f"\n[{algo_name}] Phase {phase} — Success Rate={successes/episodes*100:.1f}%, Avg Reward={np.mean(total_rewards):.2f}")
 
-# ---------------- Actor-Critic Playback ----------------
 def run_actorcritic_playback(phase, episodes, grid_size=6):
     env = LockKeyEnv(render_mode='human', size=grid_size, phase=phase)
     env._load_images()
@@ -565,7 +551,7 @@ def run_actorcritic_playback(phase, episodes, grid_size=6):
     env.close()
     print(f"[SUMMARY] Phase {phase}: Avg Reward={np.mean(total_rewards):.2f}")
 
-# ---------------- Main Menu ----------------
+# ====================================================================== MAIN MENU
 def main_menu():
     pygame.init()
     W,H=980,640
@@ -644,7 +630,7 @@ def main_menu():
         pygame.display.update()
         clock.tick(30)
 
-# ---------------- Launcher ----------------
+# ========================================================================= LAUNCHER
 def launch():
     while True:
         res = main_menu()
