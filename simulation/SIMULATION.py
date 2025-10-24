@@ -80,14 +80,14 @@ class LockKeyEnv(gym.Env):
         self.cell_size = self.grid_size // self.size
 
         # Spaces
-        self.action_space = spaces.Discrete(6)
+        self.action_space = spaces.Discrete(4)
         self.observation_space = spaces.Discrete(self.size**6)
 
         # Defaults and walls
         self._default_agent_pos = np.array([0, 0])
-        self._default_key_pos = np.array([2, 5])
+        self._default_key_pos = np.array([2, 2])
         self._default_lock_pos = np.array([5, 5])
-        self.walls = {(0,3),(1,3),(2,3),(3,1),(4,2),(4,3)}
+        self.walls = {(0,2),(1,1),(1,4),(2,3),(3,0),(3,2),(4,4)}
         self._fixed_phase1_walls = self.walls.copy()
 
         # Enemy & trail
@@ -121,7 +121,7 @@ class LockKeyEnv(gym.Env):
         self.speed_levels = [0.5, 1, 2, 5, 10, 20, 30, 40, 50, 60]
         self.current_speed_idx = 1
 
-        self.max_steps = 200
+        self.max_steps = 300
 
         # images (to be loaded)
         self.player_img = None
@@ -417,17 +417,47 @@ class LockKeyEnv(gym.Env):
             pygame.quit()
 
 def get_q_for_state(q_table, obs, n_actions):
+    """Robust Q-table lookup with flexible key matching and fallback."""
     obs_key = tuple(int(x) for x in obs)
-    if obs_key in q_table: return np.array(q_table[obs_key], dtype=float)
-    for key in q_table.keys():
-        try:
-            if isinstance(key,(tuple,list,np.ndarray)):
-                if np.allclose(np.array(key,dtype=float), np.array(obs,dtype=float)):
-                    return np.array(q_table[key],dtype=float)
-        except: continue
-    str_key = str(list(obs_key))
-    if str_key in q_table: return np.array(q_table[str_key],dtype=float)
-    return np.zeros(n_actions,dtype=float)
+    qvals = None
+
+    # Direct match
+    if obs_key in q_table:
+        qvals = np.array(q_table[obs_key], dtype=float)
+    else:
+        # Try string, tuple length variations, or partial match
+        obs_str = str(obs_key)
+        if obs_str in q_table:
+            qvals = np.array(q_table[obs_str], dtype=float)
+        else:
+            # try flatten if keys are like single int (flattened state)
+            flat = int(np.sum(np.array(obs) * np.array([10**i for i in range(len(obs))])))
+            if flat in q_table:
+                qvals = np.array(q_table[flat], dtype=float)
+            else:
+                # Fallback: use nearest or random
+                if len(q_table) > 0:
+                    sample_key = next(iter(q_table.keys()))
+                    if isinstance(sample_key, (tuple, list, np.ndarray)):
+                        key_len = len(sample_key)
+                        if len(obs_key) > key_len:
+                            obs_key = obs_key[:key_len]
+                        elif len(obs_key) < key_len:
+                            obs_key = obs_key + (0,) * (key_len - len(obs_key))
+                        if obs_key in q_table:
+                            qvals = np.array(q_table[obs_key], dtype=float)
+    
+    # Final fallback to avoid stuck agent
+    if qvals is None or np.all(qvals == 0):
+        qvals = np.random.uniform(0, 1, n_actions)
+
+    # Ensure size consistency
+    if len(qvals) != n_actions:
+        qvals = np.resize(qvals, n_actions)
+
+    return qvals
+
+
 
 class ActorNetwork(nn.Module):
     def __init__(self, state_dim, action_dim):
@@ -468,8 +498,20 @@ def run_tabular_playback(phase, episodes, algo_name="Q-Learning", grid_size=6):
     try:
         with open(fname,"rb") as f:
             q_table = pickle.load(f)
-        if isinstance(q_table, dict) and "q_table" in q_table: q_table = q_table["q_table"]
+            # If saved dict is nested under "q_table", fix it
+            if isinstance(q_table, dict) and "q_table" in q_table: 
+                q_table = q_table["q_table"]
+
+        # ----------------- DIAGNOSTIC PRINTS -----------------
         print(f"[LOADED] {fname} | Entries in table: {len(q_table)}")
+        if len(q_table) > 0:
+            sample_key = next(iter(q_table.keys()))
+            print("Sample key from Q-table:", sample_key)
+            print("Q-values for sample key:", q_table[sample_key])
+        else:
+            print("[WARN] Q-table is empty!")
+# ----------------------------------------------------
+
     except Exception as e: print(f"[ERROR] Could not load file {fname}: {e}"); return
 
     env = LockKeyEnv(render_mode='human', size=grid_size, phase=phase)
@@ -489,6 +531,8 @@ def run_tabular_playback(phase, episodes, algo_name="Q-Learning", grid_size=6):
             env.handle_events(pygame.event.get())
             qvals = get_q_for_state(q_table, obs, env.action_space.n)
             action = int(np.argmax(qvals))
+            if np.allclose(qvals, 0):
+                action = env.action_space.sample()
             obs, reward, terminated, truncated, info = env.step(action)
             obs = np.array(obs)
             episode_reward += reward
