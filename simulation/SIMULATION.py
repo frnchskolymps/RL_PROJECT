@@ -185,10 +185,14 @@ class LockKeyEnv(gym.Env):
             self.walls = self._fixed_phase1_walls.copy()
 
         elif self.phase == 2:
-            self.lock_pos = self._default_lock_pos.copy()
-            self.agent_pos = self._random_free_cell(exclude={tuple(self.lock_pos)})
-            self.key_pos = self._random_free_cell(exclude={tuple(self.lock_pos), tuple(self.agent_pos)})
-            self.walls = self._fixed_phase1_walls.copy()  # could also randomize mildly here
+            # Randomize agent, key, and door positions
+            self.agent_pos = self._random_free_cell()
+            self.key_pos = self._random_free_cell(exclude={tuple(self.agent_pos)})
+            self.lock_pos = self._random_free_cell(exclude={tuple(self.agent_pos), tuple(self.key_pos)})
+
+            # Keep walls fixed or mildly randomized if desired
+            self.walls = self._fixed_phase1_walls.copy()  # or self._random_walls()
+
         else:
             # phase 3
             self.agent_pos = self._random_free_cell()
